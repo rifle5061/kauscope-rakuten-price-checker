@@ -54,6 +54,22 @@ function getFirstImageUrl(images) {
   return first && (first.imageUrl || first.url) ? first.imageUrl || first.url : '';
 }
 
+function improveRakutenImageUrl(url) {
+  if (!url) return '';
+
+  let improved = String(url);
+
+  // 楽天のサムネイルURLに付く _ex=128x128 / ex=128x128 を大きめに変更。
+  // 元画像が小さい場合は限界がありますが、API既定の荒いサムネ拡大よりは改善します。
+  improved = improved.replace(/([?&])_?ex=\d+x\d+/i, '$1_ex=600x600');
+
+  if (!/[?&]_?ex=\d+x\d+/i.test(improved)) {
+    improved += (improved.includes('?') ? '&' : '?') + '_ex=600x600';
+  }
+
+  return improved;
+}
+
 function normalizeRakutenItems(payload) {
   const rawItems = payload.Items || payload.items || [];
 
@@ -64,11 +80,12 @@ function normalizeRakutenItems(payload) {
       name: item.itemName || item.name || '',
       price: Number(item.itemPrice || item.price || 0),
       shopName: item.shopName || '',
-      imageUrl:
+      imageUrl: improveRakutenImageUrl(
         getFirstImageUrl(item.mediumImageUrls) ||
         getFirstImageUrl(item.smallImageUrls) ||
         item.imageUrl ||
-        '',
+        ''
+      ),
       itemUrl: item.affiliateUrl || item.itemUrl || item.url || '',
       reviewAverage: item.reviewAverage || '',
       reviewCount: Number(item.reviewCount || 0),
@@ -129,6 +146,47 @@ function demoItems(keyword = '防災セット') {
       shipping: index % 2 === 0 ? '送料無料の可能性' : '送料別の可能性'
     };
   });
+}
+
+async function fetchRakutenPage({ applicationId, accessKey, affiliateId, keyword, page }) {
+  const params = new URLSearchParams({
+    applicationId,
+    accessKey,
+    keyword,
+    hits: '30',
+    page: String(page),
+    format: 'json',
+    formatVersion: '2',
+    elements:
+      'itemName,itemPrice,itemUrl,affiliateUrl,mediumImageUrls,smallImageUrls,shopName,reviewAverage,reviewCount,pointRate,postageFlag'
+  });
+
+  if (affiliateId) params.set('affiliateId', affiliateId);
+
+  const response = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`, {
+    headers: {
+      Accept: 'application/json',
+      accessKey,
+      Referer: REFERER_URL,
+      Origin: ORIGIN_URL,
+      'User-Agent': `KauScope/1.0 (${ORIGIN_URL})`
+    }
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      payload.error_description ||
+      payload.message ||
+      '楽天APIの取得に失敗しました。'
+    );
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
 }
 
 function parseExcludeWords(value) {
@@ -192,7 +250,7 @@ function sortItems(items, sort) {
 
 app.get('/api/search', async (req, res) => {
   const keyword = String(req.query.q || '').trim();
-  const hits = Math.min(Math.max(Number(req.query.hits || 30), 1), 30);
+  const limit = Math.min(Math.max(Number(req.query.limit || req.query.hits || 60), 1), 120);
   const mode = String(req.query.mode || 'loose');
   const minPrice = String(req.query.minPrice || '').trim();
   const maxPrice = String(req.query.maxPrice || '').trim();
@@ -211,7 +269,7 @@ app.get('/api/search', async (req, res) => {
   const affiliateId = process.env.RAKUTEN_AFFILIATE_ID;
 
   if (!applicationId || !accessKey) {
-    const rawItems = demoItems(keyword);
+    const rawItems = Array.from({ length: Math.ceil(limit / 8) }, () => demoItems(keyword)).flat().slice(0, limit);
     const filtered = filterItems(rawItems, { keyword, mode, minPrice, maxPrice, exclude });
     const finalItems = sortItems(filtered, sort);
 
@@ -221,6 +279,7 @@ app.get('/api/search', async (req, res) => {
       keyword,
       source: 'demo',
       mode,
+      requestedLimit: limit,
       stats: buildStats(finalItems),
       filtered: {
         before: rawItems.length,
@@ -233,46 +292,26 @@ app.get('/api/search', async (req, res) => {
     });
   }
 
-  const params = new URLSearchParams({
-    applicationId,
-    accessKey,
-    keyword,
-    hits: String(hits),
-    format: 'json',
-    formatVersion: '2',
-    elements:
-      'itemName,itemPrice,itemUrl,affiliateUrl,mediumImageUrls,smallImageUrls,shopName,reviewAverage,reviewCount,pointRate,postageFlag'
-  });
-
-  if (affiliateId) params.set('affiliateId', affiliateId);
-
   try {
-    const response = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`, {
-      headers: {
-        Accept: 'application/json',
+    const pagesToFetch = Math.ceil(limit / 30);
+    const payloads = [];
+
+    for (let page = 1; page <= pagesToFetch; page += 1) {
+      const payload = await fetchRakutenPage({
+        applicationId,
         accessKey,
-        Referer: REFERER_URL,
-        Origin: ORIGIN_URL,
-        'User-Agent': `KauScope/1.0 (${ORIGIN_URL})`
-      }
-    });
-
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        ok: false,
-        message:
-          payload.error_description ||
-          payload.message ||
-          '楽天APIの取得に失敗しました。',
-        details: payload,
-        refererSent: REFERER_URL,
-        originSent: ORIGIN_URL
+        affiliateId,
+        keyword,
+        page
       });
+
+      payloads.push(payload);
+
+      const currentItems = normalizeRakutenItems(payload);
+      if (currentItems.length < 30) break;
     }
 
-    const rawItems = normalizeRakutenItems(payload);
+    const rawItems = payloads.flatMap((payload) => normalizeRakutenItems(payload)).slice(0, limit);
     const filtered = filterItems(rawItems, { keyword, mode, minPrice, maxPrice, exclude });
     const finalItems = sortItems(filtered, sort);
 
@@ -282,6 +321,7 @@ app.get('/api/search', async (req, res) => {
       keyword,
       source: 'rakuten',
       mode,
+      requestedLimit: limit,
       stats: buildStats(finalItems),
       filtered: {
         before: rawItems.length,
@@ -293,10 +333,13 @@ app.get('/api/search', async (req, res) => {
       items: finalItems
     });
   } catch (error) {
-    return res.status(500).json({
+    const status = error.status || 500;
+    return res.status(status).json({
       ok: false,
-      message: 'サーバー側で取得エラーが発生しました。',
-      details: error.message || String(error)
+      message: error.message || 'サーバー側で取得エラーが発生しました。',
+      details: error.payload || String(error),
+      refererSent: REFERER_URL,
+      originSent: ORIGIN_URL
     });
   }
 });
