@@ -4,6 +4,7 @@ const minPriceInput = document.querySelector('#minPrice');
 const maxPriceInput = document.querySelector('#maxPrice');
 const excludeInput = document.querySelector('#exclude');
 const sortSelect = document.querySelector('#sort');
+const limitSelect = document.querySelector('#limit');
 const statusEl = document.querySelector('#status');
 const summaryEl = document.querySelector('#summary');
 const resultsEl = document.querySelector('#results');
@@ -47,7 +48,7 @@ function renderSummary(data) {
       <span>最安値</span>
       <strong>${yen(stats.min)}</strong>
     </div>
-    <div class="summary-card">
+    <div class="summary-card accent">
       <span>平均価格</span>
       <strong>${yen(stats.average)}</strong>
     </div>
@@ -75,13 +76,15 @@ function renderItems(items) {
         <img src="${item.imageUrl || 'https://placehold.co/600x420/f7f0e8/202020?text=KauScope'}" alt="">
       </a>
       <div class="product-body">
-        <p class="source">${item.source || '楽天市場'}</p>
+        <div class="card-topline">
+          <p class="source">${item.source || '楽天市場'}</p>
+          <span class="point">P${item.pointRate || 0}倍</span>
+        </div>
         <h2>${item.name}</h2>
         <p class="shop">${item.shopName || ''}</p>
         <div class="meta">
           <strong>${yen(item.price)}</strong>
           <span>★ ${item.reviewAverage || '-'} / ${item.reviewCount || 0}件</span>
-          <span>ポイント ${item.pointRate || 0}倍</span>
         </div>
         <p class="shipping">${item.shipping || ''}</p>
         <a class="buy-button" href="${item.itemUrl}" target="_blank" rel="nofollow sponsored noopener">楽天で見る</a>
@@ -102,7 +105,7 @@ async function search() {
     q: keyword,
     mode: getMode(),
     sort: sortSelect.value,
-    hits: '30'
+    limit: limitSelect ? limitSelect.value : '60'
   });
 
   if (minPriceInput.value) params.set('minPrice', minPriceInput.value);
@@ -126,6 +129,7 @@ async function search() {
 
     renderSummary(data);
     renderItems(data.items || []);
+    document.querySelector('.result-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     if (data.demo) {
       setStatus(`デモ表示です。楽天APIキーが設定されると実データに切り替わります。`, 'warning');
