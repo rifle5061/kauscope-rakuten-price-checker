@@ -1,4 +1,4 @@
-import express from 'express';
+const express = require('express');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,14 +36,14 @@ function getFirstImageUrl(images) {
   if (!Array.isArray(images) || images.length === 0) return '';
   const first = images[0];
   if (typeof first === 'string') return first;
-  return first?.imageUrl || first?.url || '';
+  return first && (first.imageUrl || first.url) ? first.imageUrl || first.url : '';
 }
 
 function normalizeRakutenItems(payload) {
-  const rawItems = payload?.Items || payload?.items || [];
+  const rawItems = payload.Items || payload.items || [];
 
   return rawItems
-    .map((row) => row?.Item || row?.item || row)
+    .map((row) => row.Item || row.item || row)
     .map((item) => ({
       source: '楽天市場',
       name: item.itemName || item.name || '',
@@ -176,8 +176,8 @@ app.get('/api/search', async (req, res) => {
       return res.status(response.status).json({
         ok: false,
         message:
-          payload?.error_description ||
-          payload?.message ||
+          payload.error_description ||
+          payload.message ||
           '楽天APIの取得に失敗しました。',
         details: payload,
         refererSent: REFERER_URL,
@@ -199,12 +199,12 @@ app.get('/api/search', async (req, res) => {
     return res.status(500).json({
       ok: false,
       message: 'サーバー側で取得エラーが発生しました。',
-      details: error instanceof Error ? error.message : String(error)
+      details: error.message || String(error)
     });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`KauScope is running: http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`KauScope is running on port ${PORT}`);
   console.log(`Rakuten API Referer: ${REFERER_URL}`);
 });
