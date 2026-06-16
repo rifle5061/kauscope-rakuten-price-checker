@@ -1,18 +1,17 @@
 import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-
-// Node 18+ has global fetch.
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const RAKUTEN_ENDPOINT = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260401';
 
-// 楽天APIの新仕様では Referer / Origin が必要になることがあります。
-// Renderで使う場合は、基本このままでOK。
-// URLを変えた場合だけ、Renderの環境変数に RAKUTEN_REFERER_URL を追加してください。
-const SITE_URL = (process.env.RAKUTEN_REFERER_URL || process.env.SITE_URL || 'https://kauscope.onrender.com').replace(/\/+$/, '');
+const RAKUTEN_ENDPOINT =
+  'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260401';
+
+const SITE_URL = (
+  process.env.RAKUTEN_REFERER_URL ||
+  process.env.SITE_URL ||
+  'https://kauscope.onrender.com'
+).replace(/\/+$/, '');
+
 const ORIGIN_URL = (() => {
   try {
     return new URL(SITE_URL).origin;
@@ -20,9 +19,17 @@ const ORIGIN_URL = (() => {
     return 'https://kauscope.onrender.com';
   }
 })();
+
 const REFERER_URL = `${ORIGIN_URL}/`;
 
-app.use(cors());
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(express.static('public'));
 
 function getFirstImageUrl(images) {
@@ -42,12 +49,16 @@ function normalizeRakutenItems(payload) {
       name: item.itemName || item.name || '',
       price: Number(item.itemPrice || item.price || 0),
       shopName: item.shopName || '',
-      imageUrl: getFirstImageUrl(item.mediumImageUrls) || getFirstImageUrl(item.smallImageUrls) || item.imageUrl || '',
+      imageUrl:
+        getFirstImageUrl(item.mediumImageUrls) ||
+        getFirstImageUrl(item.smallImageUrls) ||
+        item.imageUrl ||
+        '',
       itemUrl: item.affiliateUrl || item.itemUrl || item.url || '',
       reviewAverage: item.reviewAverage || '',
       reviewCount: Number(item.reviewCount || 0),
       pointRate: Number(item.pointRate || 0),
-      shipping: item.postageFlag === 0 ? '送料込み/送料無料の可能性' : '送料別の可能性'
+      shipping: item.postageFlag === 0 ? '送料無料の可能性' : '送料別の可能性'
     }))
     .filter((item) => item.name && Number.isFinite(item.price) && item.price > 0);
 }
@@ -70,7 +81,12 @@ function buildStats(items) {
 
 function demoItems(keyword = '防災セット') {
   const seed = keyword.length * 137;
-  const base = keyword.includes('ポータブル') ? 29800 : keyword.includes('米') ? 3980 : 2480;
+  const base = keyword.includes('ポータブル')
+    ? 29800
+    : keyword.includes('米')
+      ? 3980
+      : 2480;
+
   const names = [
     `${keyword} スタンダードモデル`,
     `${keyword} コスパ重視セット`,
@@ -84,6 +100,7 @@ function demoItems(keyword = '防災セット') {
 
   return names.map((name, index) => {
     const price = base + ((seed + index * 921) % 7200);
+
     return {
       source: '楽天市場',
       name,
@@ -134,10 +151,13 @@ app.get('/api/search', async (req, res) => {
     sort: '+itemPrice',
     format: 'json',
     formatVersion: '2',
-    elements: 'itemName,itemPrice,itemUrl,affiliateUrl,mediumImageUrls,smallImageUrls,shopName,reviewAverage,reviewCount,pointRate,postageFlag'
+    elements:
+      'itemName,itemPrice,itemUrl,affiliateUrl,mediumImageUrls,smallImageUrls,shopName,reviewAverage,reviewCount,pointRate,postageFlag'
   });
 
-  if (affiliateId) params.set('affiliateId', affiliateId);
+  if (affiliateId) {
+    params.set('affiliateId', affiliateId);
+  }
 
   try {
     const response = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`, {
@@ -155,9 +175,13 @@ app.get('/api/search', async (req, res) => {
     if (!response.ok) {
       return res.status(response.status).json({
         ok: false,
-        message: payload?.error_description || payload?.message || '楽天APIの取得に失敗しました。',
+        message:
+          payload?.error_description ||
+          payload?.message ||
+          '楽天APIの取得に失敗しました。',
         details: payload,
-        hint: 'REQUEST_CONTEXT_BODY_HTTP_REFERER_MISSING が出る場合は、楽天Developersの「許可されたウェブサイト」に kauscope.onrender.com が入っているか確認してください。'
+        refererSent: REFERER_URL,
+        originSent: ORIGIN_URL
       });
     }
 
