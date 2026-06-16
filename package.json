@@ -1,7 +1,7 @@
 {
   "name": "kauscope-rakuten-price-checker",
-  "version": "1.1.0",
-  "description": "KauScope Rakuten price checker with search modes and user filters",
+  "version": "1.0.0",
+  "description": "KauScope Rakuten price checker",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

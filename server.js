@@ -34,33 +34,17 @@ app.use(express.static('public'));
 
 function normalizeText(value) {
   return String(value || '')
-    .normalize('NFKC')
     .toLowerCase()
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function compactText(value) {
-  return normalizeText(value).replace(/[\s\-_/・,，、。\.]+/g, '');
-}
-
-function getKeywordTokens(keyword) {
+function splitKeyword(keyword) {
   return normalizeText(keyword)
-    .split(/[\s,，、]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2);
-}
-
-function parseCsvWords(value) {
-  return String(value || '')
-    .split(/[\n,，、]+/)
-    .map((word) => normalizeText(word))
+    .split(/[ 　,、]+/)
+    .map((word) => word.trim())
     .filter(Boolean);
-}
-
-function parseNumber(value, fallback = null) {
-  const n = Number(String(value || '').replace(/,/g, ''));
-  return Number.isFinite(n) ? n : fallback;
 }
 
 function getFirstImageUrl(images) {
@@ -95,9 +79,7 @@ function normalizeRakutenItems(payload) {
 }
 
 function buildStats(items) {
-  if (!items.length) {
-    return { count: 0, min: 0, max: 0, average: 0 };
-  }
+  if (!items.length) return { count: 0, min: 0, max: 0, average: 0 };
 
   const prices = items.map((item) => item.price);
   const total = prices.reduce((sum, price) => sum + price, 0);
@@ -110,74 +92,15 @@ function buildStats(items) {
   };
 }
 
-function matchesSearchMode(itemName, keyword, mode) {
-  const name = normalizeText(itemName);
-  const compactName = compactText(itemName);
-  const normalizedKeyword = normalizeText(keyword);
-  const compactKeyword = compactText(keyword);
-  const tokens = getKeywordTokens(keyword);
-
-  if (mode === 'loose') return true;
-
-  // JANコードのような数字検索は、楽天検索結果を信頼する。
-  // 商品名にJANが入らない商品も多いため、ここでは落とさない。
-  if (mode === 'exact' && /^\d{8,14}$/.test(compactKeyword)) return true;
-
-  if (compactKeyword && compactName.includes(compactKeyword)) return true;
-
-  if (tokens.length > 0) {
-    return tokens.every((token) => name.includes(token) || compactName.includes(compactText(token)));
-  }
-
-  return false;
-}
-
-function applyUserFilters(items, options) {
-  const {
-    keyword,
-    mode = 'name',
-    minPrice = null,
-    maxPrice = null,
-    excludeWords = [],
-    sort = 'priceAsc'
-  } = options;
-
-  let filtered = items.filter((item) => {
-    const price = Number(item.price || 0);
-    const name = normalizeText(item.name || '');
-
-    // 説明文やキャッチコピーではなく、商品名だけで判定する。
-    if (!matchesSearchMode(item.name, keyword, mode)) return false;
-
-    if (minPrice !== null && price < minPrice) return false;
-    if (maxPrice !== null && price > maxPrice) return false;
-
-    const hasNgWord = excludeWords.some((word) => word && name.includes(word));
-    if (hasNgWord) return false;
-
-    return true;
-  });
-
-  if (sort === 'priceDesc') {
-    filtered = filtered.sort((a, b) => b.price - a.price);
-  } else if (sort === 'reviewDesc') {
-    filtered = filtered.sort((a, b) => b.reviewCount - a.reviewCount);
-  } else if (sort === 'standard') {
-    // 楽天APIの返却順を維持
-  } else {
-    filtered = filtered.sort((a, b) => a.price - b.price);
-  }
-
-  return filtered;
-}
-
 function demoItems(keyword = '防災セット') {
   const seed = keyword.length * 137;
   const base = keyword.includes('ポータブル')
     ? 29800
-    : keyword.includes('米')
-      ? 3980
-      : 2480;
+    : keyword.includes('モバイル')
+      ? 1980
+      : keyword.includes('米')
+        ? 3980
+        : 2480;
 
   const names = [
     `${keyword} スタンダードモデル`,
@@ -186,14 +109,12 @@ function demoItems(keyword = '防災セット') {
     `${keyword} 家族向けパック`,
     `${keyword} コンパクトタイプ`,
     `${keyword} 人気ショップ限定`,
-    `${keyword} 長期保存タイプ`,
-    `${keyword} まとめ買いセット`,
-    `${keyword} 用ケーブル`,
+    `USBケーブル ${keyword} 対応`,
     `${keyword} 収納ケース`
   ];
 
   return names.map((name, index) => {
-    const price = index >= 8 ? 380 + index * 90 : base + ((seed + index * 921) % 7200);
+    const price = index >= 6 ? 298 + index * 80 : base + ((seed + index * 921) % 7200);
 
     return {
       source: '楽天市場',
@@ -210,16 +131,73 @@ function demoItems(keyword = '防災セット') {
   });
 }
 
+function parseExcludeWords(value) {
+  return String(value || '')
+    .split(/[,\n、]+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function filterItems(items, options) {
+  const keyword = options.keyword || '';
+  const mode = options.mode || 'loose';
+  const minPrice = Number(options.minPrice || 0);
+  const maxPrice = Number(options.maxPrice || 0);
+  const excludeWords = parseExcludeWords(options.exclude);
+
+  const tokens = splitKeyword(keyword);
+  const normalizedKeyword = normalizeText(keyword);
+
+  return items.filter((item) => {
+    const name = item.name || '';
+    const normalizedName = normalizeText(name);
+    const price = Number(item.price || 0);
+
+    if (minPrice > 0 && price < minPrice) return false;
+    if (maxPrice > 0 && price > maxPrice) return false;
+
+    if (excludeWords.some((word) => normalizedName.includes(normalizeText(word)))) return false;
+
+    if (mode === 'title') {
+      if (!tokens.length) return true;
+      return tokens.every((token) => normalizedName.includes(token));
+    }
+
+    if (mode === 'code') {
+      if (!normalizedKeyword) return true;
+
+      const keywordNoSpace = normalizedKeyword.replace(/\s+/g, '');
+      const nameNoSpace = normalizedName.replace(/\s+/g, '');
+
+      if (/^\d{8,14}$/.test(keywordNoSpace)) {
+        return nameNoSpace.includes(keywordNoSpace);
+      }
+
+      return tokens.every((token) => normalizedName.includes(token));
+    }
+
+    return true;
+  });
+}
+
+function sortItems(items, sort) {
+  const copy = [...items];
+
+  if (sort === 'price-asc') return copy.sort((a, b) => a.price - b.price);
+  if (sort === 'price-desc') return copy.sort((a, b) => b.price - a.price);
+  if (sort === 'review-desc') return copy.sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
+
+  return copy;
+}
+
 app.get('/api/search', async (req, res) => {
   const keyword = String(req.query.q || '').trim();
   const hits = Math.min(Math.max(Number(req.query.hits || 30), 1), 30);
-  const mode = ['loose', 'name', 'exact'].includes(String(req.query.mode || ''))
-    ? String(req.query.mode)
-    : 'name';
-  const minPrice = parseNumber(req.query.minPrice, null);
-  const maxPrice = parseNumber(req.query.maxPrice, null);
-  const excludeWords = parseCsvWords(req.query.exclude || '');
-  const sort = String(req.query.sort || 'priceAsc');
+  const mode = String(req.query.mode || 'loose');
+  const minPrice = String(req.query.minPrice || '').trim();
+  const maxPrice = String(req.query.maxPrice || '').trim();
+  const exclude = String(req.query.exclude || '').trim();
+  const sort = String(req.query.sort || 'standard');
 
   if (keyword.length < 2) {
     return res.status(400).json({
@@ -234,17 +212,24 @@ app.get('/api/search', async (req, res) => {
 
   if (!applicationId || !accessKey) {
     const rawItems = demoItems(keyword);
-    const items = applyUserFilters(rawItems, { keyword, mode, minPrice, maxPrice, excludeWords, sort });
+    const filtered = filterItems(rawItems, { keyword, mode, minPrice, maxPrice, exclude });
+    const finalItems = sortItems(filtered, sort);
+
     return res.json({
       ok: true,
       demo: true,
       keyword,
       source: 'demo',
       mode,
-      filters: { minPrice, maxPrice, excludeWords, sort },
-      filtered: { before: rawItems.length, after: items.length },
-      stats: buildStats(items),
-      items
+      stats: buildStats(finalItems),
+      filtered: {
+        before: rawItems.length,
+        after: finalItems.length,
+        minPrice: Number(minPrice || 0),
+        maxPrice: Number(maxPrice || 0),
+        excludeWords: parseExcludeWords(exclude)
+      },
+      items: finalItems
     });
   }
 
@@ -259,9 +244,7 @@ app.get('/api/search', async (req, res) => {
       'itemName,itemPrice,itemUrl,affiliateUrl,mediumImageUrls,smallImageUrls,shopName,reviewAverage,reviewCount,pointRate,postageFlag'
   });
 
-  if (affiliateId) {
-    params.set('affiliateId', affiliateId);
-  }
+  if (affiliateId) params.set('affiliateId', affiliateId);
 
   try {
     const response = await fetch(`${RAKUTEN_ENDPOINT}?${params.toString()}`, {
@@ -270,7 +253,7 @@ app.get('/api/search', async (req, res) => {
         accessKey,
         Referer: REFERER_URL,
         Origin: ORIGIN_URL,
-        'User-Agent': `KauScope/1.1 (${ORIGIN_URL})`
+        'User-Agent': `KauScope/1.0 (${ORIGIN_URL})`
       }
     });
 
@@ -290,7 +273,8 @@ app.get('/api/search', async (req, res) => {
     }
 
     const rawItems = normalizeRakutenItems(payload);
-    const items = applyUserFilters(rawItems, { keyword, mode, minPrice, maxPrice, excludeWords, sort });
+    const filtered = filterItems(rawItems, { keyword, mode, minPrice, maxPrice, exclude });
+    const finalItems = sortItems(filtered, sort);
 
     return res.json({
       ok: true,
@@ -298,10 +282,15 @@ app.get('/api/search', async (req, res) => {
       keyword,
       source: 'rakuten',
       mode,
-      filters: { minPrice, maxPrice, excludeWords, sort },
-      filtered: { before: rawItems.length, after: items.length },
-      stats: buildStats(items),
-      items
+      stats: buildStats(finalItems),
+      filtered: {
+        before: rawItems.length,
+        after: finalItems.length,
+        minPrice: Number(minPrice || 0),
+        maxPrice: Number(maxPrice || 0),
+        excludeWords: parseExcludeWords(exclude)
+      },
+      items: finalItems
     });
   } catch (error) {
     return res.status(500).json({
