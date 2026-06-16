@@ -255,7 +255,7 @@ app.get('/api/search', async (req, res) => {
   const minPrice = String(req.query.minPrice || '').trim();
   const maxPrice = String(req.query.maxPrice || '').trim();
   const exclude = String(req.query.exclude || '').trim();
-  const sort = String(req.query.sort || 'standard');
+  const sort = String(req.query.sort || 'price-asc');
 
   if (keyword.length < 2) {
     return res.status(400).json({
