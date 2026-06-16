@@ -3,138 +3,87 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KauScope｜買う前に、相場を見る。</title>
-  <meta name="description" content="商品名・型番・JANコードから楽天市場の商品価格を検索し、最安値・最高値・平均価格を確認できる価格チェックツールです。" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <title>KauScope | 買う前価格チェック</title>
+  <meta name="description" content="商品名・型番・JANコードから楽天市場の価格相場をチェックできるツールです。" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="hero">
     <nav class="nav">
-      <div class="brand">
-        <span class="brand-mark">K</span>
-        <span>KauScope</span>
-      </div>
-      <a class="nav-link" href="#search">価格を調べる</a>
+      <div class="brand">KauScope</div>
+      <div class="badge">PR / Rakuten price checker</div>
     </nav>
 
-    <section class="hero-inner">
-      <p class="eyebrow">Rakuten price checker</p>
-      <h1>買う前に、<br>相場を見る。</h1>
+    <section class="hero-content">
+      <p class="eyebrow">買う前に、相場を見る。</p>
+      <h1>商品名・型番・JANコードで<br />楽天価格をチェック。</h1>
       <p class="lead">
-        商品名・型番・JANコードから楽天市場の商品価格を検索。<br>
-        最安値・最高値・平均価格を見て、買う前の判断をしやすくします。
+        最安値・最高値・平均価格をまとめて確認。検索モードと価格フィルターで、余計な商品を減らせます。
       </p>
-      <div class="hero-badges">
-        <span>楽天API対応</span>
-        <span>検索モード切替</span>
-        <span>価格フィルター対応</span>
-      </div>
-    </section>
-  </header>
 
-  <main>
-    <section id="search" class="search-card">
-      <div class="section-head">
-        <p class="eyebrow">Search</p>
-        <h2>商品価格を調べる</h2>
-        <p>検索モードとフィルターを調整して、関係ない商品を減らせます。</p>
-      </div>
-
-      <form id="searchForm" class="form">
-        <label class="input-label" for="keyword">商品名・型番・JANコード</label>
+      <form id="searchForm" class="search-card">
+        <label class="label" for="keyword">商品名・型番・JANコード</label>
         <div class="search-row">
-          <input id="keyword" name="keyword" type="search" placeholder="例：モバイルバッテリー / Anker A1257 / 4902370..." autocomplete="off" required />
+          <input id="keyword" name="keyword" type="search" placeholder="例：モバイルバッテリー / Anker A1257 / 490..." autocomplete="off" required />
           <button type="submit">価格を調べる</button>
         </div>
 
         <div class="mode-box">
-          <p class="input-label">検索モード</p>
-          <label class="radio-card">
-            <input type="radio" name="mode" value="loose" />
-            <span>
-              <strong>ゆるく探す</strong>
-              <small>楽天の検索結果を広めに表示</small>
-            </span>
-          </label>
-          <label class="radio-card">
-            <input type="radio" name="mode" value="name" checked />
-            <span>
-              <strong>商品名に含むものだけ</strong>
-              <small>商品名だけで判定。価格比較向き</small>
-            </span>
-          </label>
-          <label class="radio-card">
-            <input type="radio" name="mode" value="exact" />
-            <span>
-              <strong>型番・JANコードで探す</strong>
-              <small>型番やJAN入力時の精度重視</small>
-            </span>
-          </label>
+          <p class="label">検索モード</p>
+          <label><input type="radio" name="mode" value="loose" checked /> ゆるく探す</label>
+          <label><input type="radio" name="mode" value="title" /> 商品名に含むものだけ</label>
+          <label><input type="radio" name="mode" value="code" /> 型番・JANコードで探す</label>
         </div>
 
-        <details class="filter-box" open>
-          <summary>価格・除外ワードフィルター</summary>
+        <details class="filters" open>
+          <summary>フィルターを調整</summary>
+
           <div class="filter-grid">
             <label>
-              <span>最低価格</span>
-              <input id="minPrice" name="minPrice" type="number" min="0" inputmode="numeric" placeholder="指定なし" />
+              最低価格
+              <input id="minPrice" type="number" inputmode="numeric" min="0" placeholder="例：500" />
             </label>
             <label>
-              <span>最高価格</span>
-              <input id="maxPrice" name="maxPrice" type="number" min="0" inputmode="numeric" placeholder="指定なし" />
+              最高価格
+              <input id="maxPrice" type="number" inputmode="numeric" min="0" placeholder="空欄で指定なし" />
             </label>
             <label>
-              <span>並び替え</span>
-              <select id="sort" name="sort">
-                <option value="priceAsc">安い順</option>
-                <option value="priceDesc">高い順</option>
-                <option value="reviewDesc">レビュー件数順</option>
+              並び替え
+              <select id="sort">
                 <option value="standard">標準</option>
+                <option value="price-asc">安い順</option>
+                <option value="price-desc">高い順</option>
+                <option value="review-desc">レビュー件数順</option>
               </select>
             </label>
           </div>
 
-          <label class="wide-label">
-            <span>除外ワード</span>
-            <input id="exclude" name="exclude" type="text" placeholder="例：ケーブル, コード, ケース, フィルム, ポーチ" />
+          <label class="wide">
+            除外ワード
+            <input id="exclude" type="text" placeholder="例：ケーブル,コード,ケース,フィルム,ポーチ" />
           </label>
 
           <div class="preset-row">
-            <button type="button" class="preset" data-preset="mobile">モバイルバッテリー向け</button>
-            <button type="button" class="preset" data-preset="power">ポータブル電源向け</button>
-            <button type="button" class="preset" data-preset="disaster">防災セット向け</button>
-            <button type="button" class="preset" data-preset="clear">フィルターなし</button>
+            <button type="button" data-preset="mobile">モバイルバッテリー向け</button>
+            <button type="button" data-preset="power">ポータブル電源向け</button>
+            <button type="button" data-preset="disaster">防災セット向け</button>
+            <button type="button" data-preset="clear">フィルターなし</button>
           </div>
         </details>
+
+        <p class="notice">※当ページはPRを含みます。価格・在庫・ポイント還元は取得時点の情報です。最新情報は各販売ページでご確認ください。</p>
       </form>
-
-      <p class="notice">
-        ※当ページはPRを含みます。価格・在庫・ポイント還元は取得時点の情報です。最新情報は各販売ページでご確認ください。
-      </p>
     </section>
+  </header>
 
-    <section id="results" class="results hidden">
-      <div class="result-head">
-        <div>
-          <p class="eyebrow">Result</p>
-          <h2 id="resultTitle">検索結果</h2>
-          <p id="resultMeta" class="muted"></p>
-        </div>
-        <button id="relaxButton" class="ghost-button hidden" type="button">ゆるく探すで再検索</button>
-      </div>
-
-      <div id="status" class="status"></div>
-
-      <div id="stats" class="stats-grid"></div>
-      <div id="items" class="item-grid"></div>
-    </section>
+  <main>
+    <section id="summary" class="summary hidden"></section>
+    <section id="status" class="status"></section>
+    <section id="results" class="results"></section>
   </main>
 
   <footer class="footer">
-    <p>KauScope｜買う前価格チェック</p>
+    <p>KauScope は楽天市場の商品情報をもとにした価格チェックツールです。</p>
   </footer>
 
   <script src="/app.js"></script>
