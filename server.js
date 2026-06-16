@@ -79,6 +79,69 @@ function buildStats(items) {
   };
 }
 
+function getMinimumPrice(keyword) {
+  if (keyword.includes('モバイルバッテリー')) return 800;
+  if (keyword.includes('ポータブル電源')) return 10000;
+  if (keyword.includes('防災セット')) return 1500;
+  if (keyword.includes('非常食')) return 300;
+  if (keyword.includes('携帯トイレ')) return 300;
+  if (keyword.includes('簡易トイレ')) return 300;
+  if (keyword.includes('水')) return 300;
+  if (keyword.includes('米')) return 1000;
+  if (keyword.includes('ドライブレコーダー')) return 3000;
+  if (keyword.includes('バッテリー')) return 800;
+  return 300;
+}
+
+function filterItemsByKeyword(items, keyword) {
+  const ngWords = [
+    'ケーブル',
+    'コード',
+    '延長',
+    '変換',
+    'アダプタ',
+    'アダプター',
+    'ケース',
+    'カバー',
+    'フィルム',
+    'ストラップ',
+    'ホルダー',
+    'スタンド',
+    '収納袋',
+    'ポーチ',
+    'シール',
+    'ステッカー',
+    '説明書',
+    '中古',
+    'ジャンク',
+    '訳あり',
+    '互換',
+    '部品',
+    'パーツ'
+  ];
+
+  const minPrice = getMinimumPrice(keyword);
+
+  let filtered = items.filter((item) => {
+    const name = item.name || '';
+    const price = Number(item.price || 0);
+
+    if (!price || price < minPrice) return false;
+
+    const hasNgWord = ngWords.some((word) => name.includes(word));
+    if (hasNgWord) return false;
+
+    return true;
+  });
+
+  // フィルターが強すぎて0件になると使いにくいので、その場合は価格フィルターだけに戻す。
+  if (filtered.length === 0) {
+    filtered = items.filter((item) => Number(item.price || 0) >= minPrice);
+  }
+
+  return filtered;
+}
+
 function demoItems(keyword = '防災セット') {
   const seed = keyword.length * 137;
   const base = keyword.includes('ポータブル')
@@ -132,14 +195,14 @@ app.get('/api/search', async (req, res) => {
   const affiliateId = process.env.RAKUTEN_AFFILIATE_ID;
 
   if (!applicationId || !accessKey) {
-    const items = demoItems(keyword);
+    const items = filterItemsByKeyword(demoItems(keyword), keyword).sort((a, b) => a.price - b.price);
     return res.json({
       ok: true,
       demo: true,
       keyword,
       source: 'demo',
       stats: buildStats(items),
-      items: items.sort((a, b) => a.price - b.price)
+      items
     });
   }
 
@@ -185,7 +248,8 @@ app.get('/api/search', async (req, res) => {
       });
     }
 
-    const items = normalizeRakutenItems(payload).sort((a, b) => a.price - b.price);
+    const rawItems = normalizeRakutenItems(payload);
+    const items = filterItemsByKeyword(rawItems, keyword).sort((a, b) => a.price - b.price);
 
     return res.json({
       ok: true,
@@ -193,7 +257,12 @@ app.get('/api/search', async (req, res) => {
       keyword,
       source: 'rakuten',
       stats: buildStats(items),
-      items
+      items,
+      filtered: {
+        before: rawItems.length,
+        after: items.length,
+        minPrice: getMinimumPrice(keyword)
+      }
     });
   } catch (error) {
     return res.status(500).json({
