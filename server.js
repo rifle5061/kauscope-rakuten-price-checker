@@ -32,6 +32,37 @@ app.use((req, res, next) => {
 
 app.use(express.static('public'));
 
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function compactText(value) {
+  return normalizeText(value).replace(/[\s\-_/・,，、。\.]+/g, '');
+}
+
+function getKeywordTokens(keyword) {
+  return normalizeText(keyword)
+    .split(/[\s,，、]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+function parseCsvWords(value) {
+  return String(value || '')
+    .split(/[\n,，、]+/)
+    .map((word) => normalizeText(word))
+    .filter(Boolean);
+}
+
+function parseNumber(value, fallback = null) {
+  const n = Number(String(value || '').replace(/,/g, ''));
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function getFirstImageUrl(images) {
   if (!Array.isArray(images) || images.length === 0) return '';
   const first = images[0];
@@ -79,64 +110,62 @@ function buildStats(items) {
   };
 }
 
-function getMinimumPrice(keyword) {
-  if (keyword.includes('モバイルバッテリー')) return 800;
-  if (keyword.includes('ポータブル電源')) return 10000;
-  if (keyword.includes('防災セット')) return 1500;
-  if (keyword.includes('非常食')) return 300;
-  if (keyword.includes('携帯トイレ')) return 300;
-  if (keyword.includes('簡易トイレ')) return 300;
-  if (keyword.includes('水')) return 300;
-  if (keyword.includes('米')) return 1000;
-  if (keyword.includes('ドライブレコーダー')) return 3000;
-  if (keyword.includes('バッテリー')) return 800;
-  return 300;
+function matchesSearchMode(itemName, keyword, mode) {
+  const name = normalizeText(itemName);
+  const compactName = compactText(itemName);
+  const normalizedKeyword = normalizeText(keyword);
+  const compactKeyword = compactText(keyword);
+  const tokens = getKeywordTokens(keyword);
+
+  if (mode === 'loose') return true;
+
+  // JANコードのような数字検索は、楽天検索結果を信頼する。
+  // 商品名にJANが入らない商品も多いため、ここでは落とさない。
+  if (mode === 'exact' && /^\d{8,14}$/.test(compactKeyword)) return true;
+
+  if (compactKeyword && compactName.includes(compactKeyword)) return true;
+
+  if (tokens.length > 0) {
+    return tokens.every((token) => name.includes(token) || compactName.includes(compactText(token)));
+  }
+
+  return false;
 }
 
-function filterItemsByKeyword(items, keyword) {
-  const ngWords = [
-    'ケーブル',
-    'コード',
-    '延長',
-    '変換',
-    'アダプタ',
-    'アダプター',
-    'ケース',
-    'カバー',
-    'フィルム',
-    'ストラップ',
-    'ホルダー',
-    'スタンド',
-    '収納袋',
-    'ポーチ',
-    'シール',
-    'ステッカー',
-    '説明書',
-    '中古',
-    'ジャンク',
-    '訳あり',
-    '互換',
-    '部品',
-    'パーツ'
-  ];
-
-  const minPrice = getMinimumPrice(keyword);
+function applyUserFilters(items, options) {
+  const {
+    keyword,
+    mode = 'name',
+    minPrice = null,
+    maxPrice = null,
+    excludeWords = [],
+    sort = 'priceAsc'
+  } = options;
 
   let filtered = items.filter((item) => {
-    const name = item.name || '';
     const price = Number(item.price || 0);
+    const name = normalizeText(item.name || '');
 
-    if (!price || price < minPrice) return false;
+    // 説明文やキャッチコピーではなく、商品名だけで判定する。
+    if (!matchesSearchMode(item.name, keyword, mode)) return false;
 
-    const hasNgWord = ngWords.some((word) => name.includes(word));
+    if (minPrice !== null && price < minPrice) return false;
+    if (maxPrice !== null && price > maxPrice) return false;
+
+    const hasNgWord = excludeWords.some((word) => word && name.includes(word));
     if (hasNgWord) return false;
 
     return true;
   });
 
-  // フィルターが強すぎて0件になると使いにくいので、その場合は価格フィルターだけに戻す。
-  if (filtered.length === 0) {
-    filtered = items.filter((item) => Number(item.price || 0) >= minPrice);
+  if (sort === 'priceDesc') {
+    filtered = filtered.sort((a, b) => b.price - a.price);
+  } else if (sort === 'reviewDesc') {
+    filtered = filtered.sort((a, b) => b.reviewCount - a.reviewCount);
+  } else if (sort === 'standard') {
+    // 楽天APIの返却順を維持
+  } else {
+    filtered = filtered.sort((a, b) => a.price - b.price);
   }
 
   return filtered;
@@ -158,11 +187,13 @@ function demoItems(keyword = '防災セット') {
     `${keyword} コンパクトタイプ`,
     `${keyword} 人気ショップ限定`,
     `${keyword} 長期保存タイプ`,
-    `${keyword} まとめ買いセット`
+    `${keyword} まとめ買いセット`,
+    `${keyword} 用ケーブル`,
+    `${keyword} 収納ケース`
   ];
 
   return names.map((name, index) => {
-    const price = base + ((seed + index * 921) % 7200);
+    const price = index >= 8 ? 380 + index * 90 : base + ((seed + index * 921) % 7200);
 
     return {
       source: '楽天市場',
@@ -182,11 +213,18 @@ function demoItems(keyword = '防災セット') {
 app.get('/api/search', async (req, res) => {
   const keyword = String(req.query.q || '').trim();
   const hits = Math.min(Math.max(Number(req.query.hits || 30), 1), 30);
+  const mode = ['loose', 'name', 'exact'].includes(String(req.query.mode || ''))
+    ? String(req.query.mode)
+    : 'name';
+  const minPrice = parseNumber(req.query.minPrice, null);
+  const maxPrice = parseNumber(req.query.maxPrice, null);
+  const excludeWords = parseCsvWords(req.query.exclude || '');
+  const sort = String(req.query.sort || 'priceAsc');
 
   if (keyword.length < 2) {
     return res.status(400).json({
       ok: false,
-      message: '商品名は2文字以上で入力してください。'
+      message: '商品名・型番・JANコードは2文字以上で入力してください。'
     });
   }
 
@@ -195,12 +233,16 @@ app.get('/api/search', async (req, res) => {
   const affiliateId = process.env.RAKUTEN_AFFILIATE_ID;
 
   if (!applicationId || !accessKey) {
-    const items = filterItemsByKeyword(demoItems(keyword), keyword).sort((a, b) => a.price - b.price);
+    const rawItems = demoItems(keyword);
+    const items = applyUserFilters(rawItems, { keyword, mode, minPrice, maxPrice, excludeWords, sort });
     return res.json({
       ok: true,
       demo: true,
       keyword,
       source: 'demo',
+      mode,
+      filters: { minPrice, maxPrice, excludeWords, sort },
+      filtered: { before: rawItems.length, after: items.length },
       stats: buildStats(items),
       items
     });
@@ -211,7 +253,6 @@ app.get('/api/search', async (req, res) => {
     accessKey,
     keyword,
     hits: String(hits),
-    sort: '+itemPrice',
     format: 'json',
     formatVersion: '2',
     elements:
@@ -229,7 +270,7 @@ app.get('/api/search', async (req, res) => {
         accessKey,
         Referer: REFERER_URL,
         Origin: ORIGIN_URL,
-        'User-Agent': `KauScope/1.0 (${ORIGIN_URL})`
+        'User-Agent': `KauScope/1.1 (${ORIGIN_URL})`
       }
     });
 
@@ -249,20 +290,18 @@ app.get('/api/search', async (req, res) => {
     }
 
     const rawItems = normalizeRakutenItems(payload);
-    const items = filterItemsByKeyword(rawItems, keyword).sort((a, b) => a.price - b.price);
+    const items = applyUserFilters(rawItems, { keyword, mode, minPrice, maxPrice, excludeWords, sort });
 
     return res.json({
       ok: true,
       demo: false,
       keyword,
       source: 'rakuten',
+      mode,
+      filters: { minPrice, maxPrice, excludeWords, sort },
+      filtered: { before: rawItems.length, after: items.length },
       stats: buildStats(items),
-      items,
-      filtered: {
-        before: rawItems.length,
-        after: items.length,
-        minPrice: getMinimumPrice(keyword)
-      }
+      items
     });
   } catch (error) {
     return res.status(500).json({
