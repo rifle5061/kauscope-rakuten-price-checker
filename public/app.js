@@ -176,7 +176,7 @@ document.querySelectorAll('[data-preset]').forEach((button) => {
       maxPriceInput.value = '';
       excludeInput.value = '';
       document.querySelector('input[name="mode"][value="loose"]').checked = true;
-      sortSelect.value = 'standard';
+      sortSelect.value = 'price-asc';
     }
   });
 });
