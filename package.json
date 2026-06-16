@@ -1,12 +1,13 @@
 {
   "name": "kauscope-rakuten-price-checker",
   "version": "1.0.0",
-  "description": "KauScope - Rakuten affiliate price checker MVP",
+  "description": "KauScope Rakuten price checker",
   "main": "server.js",
-  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.3"
   },
   "engines": {
     "node": ">=18"
